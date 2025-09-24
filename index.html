@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物理法則チャレンジ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8;
+            color: #1a202c;
+        }
+        .container {
+            max-width: 1200px;
+        }
+        .panel {
+            background-color: #ffffff;
+            border-radius: 1rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        canvas {
+            border-radius: 1rem;
+            border: 2px solid #e2e8f0;
+            background-color: #f8fafc;
+        }
+        .button {
+            transition: transform 0.1s ease-in-out;
+        }
+        .button:active {
+            transform: scale(0.95);
+        }
+        .game-info-box {
+            background-color: #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 0.75rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
+
+<div id="app" class="container mx-auto panel p-6 md:p-10 space-y-8">
+    <h1 class="text-4xl md:text-5xl font-bold text-center mb-4 text-gray-800">
+        物理法則チャレンジ
+    </h1>
+    <p class="text-center text-gray-600 mb-8">
+        各チャレンジをクリアして物理の達人を目指そう！
+    </p>
+
+    <!-- Simulation Selection -->
+    <div class="flex justify-center flex-wrap gap-4 mb-8">
+        <button id="gravity-btn" class="button bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 px-6 rounded-full shadow-lg">
+            重力チャレンジ
+        </button>
+        <button id="momentum-btn" class="button bg-teal-500 hover:bg-teal-600 text-white font-bold py-3 px-6 rounded-full shadow-lg">
+            運動量チャレンジ
+        </button>
+        <button id="buoyancy-btn" class="button bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-6 rounded-full shadow-lg">
+            浮力チャレンジ
+        </button>
+    </div>
+
+    <div id="simulation-container" class="space-y-6">
+        <!-- Simulation Canvas -->
+        <div class="flex-1 relative">
+            <canvas id="physicsCanvas" class="w-full" height="500"></canvas>
+            <!-- Game UI elements -->
+            <div id="game-ui" class="absolute top-4 left-4 right-4 flex justify-between text-white font-bold text-lg">
+                <div id="score-box" class="game-info-box text-gray-800">
+                    スコア: <span id="score">0</span>
+                </div>
+                <div id="goal-box" class="game-info-box text-gray-800">
+                    ステージ: <span id="current-stage">1</span> / <span id="total-stages"></span>
+                </div>
+            </div>
+            <div id="message-box" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div id="message-text" class="text-3xl md:text-5xl font-bold text-gray-800 text-center"></div>
+            </div>
+        </div>
+
+        <!-- Parameters and Controls Panel -->
+        <div id="controls-panel" class="panel p-6">
+            <div id="controls-content" class="space-y-4">
+                <div class="text-center text-gray-500">
+                    チャレンジを選択してください。
+                </div>
+            </div>
+            
+            <div class="mt-6 flex justify-center">
+                <button id="action-btn" class="button bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-full shadow-lg hidden">
+                    発射！
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('physicsCanvas');
+    const ctx = canvas.getContext('2d');
+
+    const gravityBtn = document.getElementById('gravity-btn');
+    const momentumBtn = document.getElementById('momentum-btn');
+    const buoyancyBtn = document.getElementById('buoyancy-btn');
+    const actionBtn = document.getElementById('action-btn');
+    const controlsContent = document.getElementById('controls-content');
+    const scoreEl = document.getElementById('score');
+    const stageEl = document.getElementById('current-stage');
+    const totalStagesEl = document.getElementById('total-stages');
+    const messageBox = document.getElementById('message-box');
+    const messageText = document.getElementById('message-text');
+    const goalEl = document.getElementById('goal-box');
+
+    // Make canvas responsive
+    let canvasWidth, canvasHeight;
+    const resizeCanvas = () => {
+        canvasWidth = window.innerWidth > 1200 ? 1160 : window.innerWidth * 0.9;
+        canvasHeight = 500;
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+    };
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // Global game variables
+    let animationFrameId;
+    let simulationType = null;
+    let simulationState = {};
+    let score = 0;
+    let currentStage = 0;
+    
+    // Stage data for each challenge
+    const stages = {
+        gravity: [
+            { velocity: 50, angle: 45, targetX: 600, targetY: 450, goalText: '初速50, 角度45でターゲットに当てよう' },
+            { velocity: 70, angle: 30, targetX: 800, targetY: 400, goalText: '角度を調整してターゲットに当てよう' },
+            { velocity: 90, angle: 60, targetX: 950, targetY: 420, goalText: 'より遠くのターゲットに当てよう' }
+        ],
+        momentum: [
+            { massA: 5, massB: 5, velocityA: 10, velocityB: -5, goalX: 1000, goalText: 'ボールBをゴールに入れよう' },
+            { massA: 10, massB: 2, velocityA: 10, velocityB: 0, goalX: 900, goalText: '重いボールで軽いボールをゴールさせよう' },
+            { massA: 3, massB: 8, velocityA: 15, velocityB: -5, goalX: 950, goalText: '質量と速度を調整してゴールさせよう' }
+        ],
+        buoyancy: [
+            { liquidDensity: 1.0, targetDensity: 0.8, goalText: '液体に半分以上沈むように調整' },
+            { liquidDensity: 1.5, targetDensity: 1.5, goalText: '液体と物体の密度を同じにして浮かべよう' },
+            { liquidDensity: 0.7, targetDensity: 0.7, goalText: '液体と物体の密度を同じにして浮かべよう' }
+        ]
+    };
+
+    // --- Utility Functions ---
+    const drawBackground = () => {
+        ctx.fillStyle = '#f8fafc';
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    };
+
+    const drawCircle = (x, y, radius, color) => {
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.closePath();
+    };
+
+    const drawRect = (x, y, width, height, color) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, width, height);
+    };
+
+    const drawText = (text, x, y, color = '#1a202c', font = '16px Inter') => {
+        ctx.fillStyle = color;
+        ctx.font = font;
+        ctx.textAlign = 'center';
+        ctx.fillText(text, x, y);
+    };
+
+    const showMessage = (text, duration = 2000) => {
+        messageText.textContent = text;
+        messageBox.classList.add('visible');
+        setTimeout(() => {
+            messageText.textContent = '';
+            messageBox.classList.remove('visible');
+        }, duration);
+    };
+
+    const updateScore = (points) => {
+        score += points;
+        scoreEl.textContent = score;
+    };
+    
+    const setStageUI = (challengeStages, stageIndex) => {
+        stageEl.textContent = stageIndex + 1;
+        totalStagesEl.textContent = challengeStages.length;
+        if (challengeStages[stageIndex].goalText) {
+             // Update the goal text dynamically
+             goalEl.textContent = 'ステージ: ' + (stageIndex + 1) + ' / ' + challengeStages.length + ' - ' + challengeStages[stageIndex].goalText;
+        }
+    };
+
+    const nextStage = () => {
+        currentStage++;
+        if (currentStage >= stages[simulationType].length) {
+            showMessage('全ステージクリア！おめでとう！', 5000);
+            updateScore(1000); // Bonus for finishing all stages
+            actionBtn.textContent = '最初に戻る';
+            actionBtn.onclick = () => startSimulation(simulationType);
+            currentStage = 0; // Reset for replay
+        } else {
+            showMessage('ステージ' + (currentStage + 1) + 'へ！', 2000);
+            setTimeout(() => {
+                startSimulation(simulationType, currentStage);
+            }, 2000);
+        }
+    };
+
+    // --- Simulation States and Logic ---
+
+    // Gravity Challenge
+    const initGravityChallenge = (stageIndex = 0) => {
+        const stage = stages.gravity[stageIndex];
+        setStageUI(stages.gravity, stageIndex);
+        actionBtn.classList.remove('hidden');
+        actionBtn.textContent = '発射！';
+        
+        simulationState = {
+            ballX: 50, ballY: canvasHeight - 50,
+            velocity: stage.velocity, angle: stage.angle,
+            vx: 0, vy: 0,
+            isLaunched: false,
+            targetX: stage.targetX,
+            targetY: stage.targetY,
+            targetRadius: 30,
+            isHit: false
+        };
+
+        controlsContent.innerHTML = `
+            <h2 class="text-2xl font-bold text-center text-gray-700">重力チャレンジ</h2>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">初速 (${simulationState.velocity.toFixed(2)} m/s)</label>
+                <input type="range" id="vel-slider" min="10" max="100" step="1" value="${simulationState.velocity}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">角度 (${simulationState.angle.toFixed(0)} 度)</label>
+                <input type="range" id="angle-slider" min="0" max="90" step="1" value="${simulationState.angle}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+        `;
+        const velSlider = document.getElementById('vel-slider');
+        const angleSlider = document.getElementById('angle-slider');
+        velSlider.addEventListener('input', (e) => {
+            simulationState.velocity = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `初速 (${simulationState.velocity.toFixed(2)} m/s)`;
+        });
+        angleSlider.addEventListener('input', (e) => {
+            simulationState.angle = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `角度 (${simulationState.angle.toFixed(0)} 度)`;
+        });
+        actionBtn.onclick = launchProjectile;
+    };
+
+    const launchProjectile = () => {
+        if (!simulationState.isLaunched) {
+            simulationState.isLaunched = true;
+            const rad = simulationState.angle * Math.PI / 180;
+            simulationState.vx = simulationState.velocity * Math.cos(rad);
+            simulationState.vy = -simulationState.velocity * Math.sin(rad);
+            updateScore(-10); // Cost to launch
+        }
+    };
+
+    const updateGravityChallenge = () => {
+        drawBackground();
+        
+        // Draw ground
+        drawRect(0, canvasHeight - 2, canvasWidth, 2, '#333');
+
+        // Draw target
+        drawCircle(simulationState.targetX, simulationState.targetY - simulationState.targetRadius, simulationState.targetRadius, '#d9534f');
+        drawText('TARGET', simulationState.targetX, simulationState.targetY - simulationState.targetRadius - 40, '#d9534f');
+
+        if (simulationState.isLaunched) {
+            const dt = 0.05;
+            const g = 9.8;
+
+            simulationState.ballX += simulationState.vx * dt;
+            simulationState.vy += g * dt;
+            simulationState.ballY += simulationState.vy * dt;
+
+            // Collision check with target
+            const dist = Math.sqrt(Math.pow(simulationState.ballX - simulationState.targetX, 2) + Math.pow(simulationState.ballY - simulationState.targetY, 2));
+            if (dist < 20 + simulationState.targetRadius && !simulationState.isHit) {
+                simulationState.isHit = true;
+                simulationState.isLaunched = false;
+                updateScore(100);
+                showMessage('成功！', 3000);
+                actionBtn.textContent = '次のステージへ';
+                actionBtn.onclick = nextStage;
+            }
+
+            // Stop simulation if ball hits the ground or goes off-screen
+            if (simulationState.ballY >= canvasHeight - 20 || simulationState.ballX > canvasWidth || simulationState.ballX < 0) {
+                if (!simulationState.isHit) {
+                    showMessage('失敗...', 2000);
+                }
+                simulationState.isLaunched = false;
+                actionBtn.textContent = '再挑戦';
+                actionBtn.onclick = () => startSimulation('gravity', currentStage);
+            }
+        }
+        drawCircle(simulationState.ballX, simulationState.ballY, 20, '#f59e0b');
+    };
+
+    // Momentum Challenge
+    const initMomentumChallenge = (stageIndex = 0) => {
+        const stage = stages.momentum[stageIndex];
+        setStageUI(stages.momentum, stageIndex);
+        actionBtn.classList.remove('hidden');
+        actionBtn.textContent = '衝突開始！';
+        
+        simulationState = {
+            massA: stage.massA, massB: stage.massB,
+            velocityA: stage.velocityA, velocityB: stage.velocityB,
+            vxA: stage.velocityA, vxB: stage.velocityB,
+            ballAX: canvasWidth * 0.2,
+            ballBX: canvasWidth * 0.8,
+            isLaunched: false,
+            goalX: stage.goalX,
+            goalWidth: 10,
+            goalHeight: 100
+        };
+        
+        controlsContent.innerHTML = `
+            <h2 class="text-2xl font-bold text-center text-gray-700">運動量チャレンジ</h2>
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1 space-y-2">
+                    <h3 class="font-bold text-lg text-teal-600">ボールA</h3>
+                    <label class="block text-sm font-medium text-gray-700">質量 (${simulationState.massA} kg)</label>
+                    <input type="range" id="massA-slider" min="1" max="10" step="0.5" value="${simulationState.massA}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <label class="block text-sm font-medium text-gray-700">速度 (${simulationState.velocityA} m/s)</label>
+                    <input type="range" id="velA-slider" min="-20" max="20" step="1" value="${simulationState.velocityA}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+                <div class="flex-1 space-y-2">
+                    <h3 class="font-bold text-lg text-teal-600">ボールB</h3>
+                    <label class="block text-sm font-medium text-gray-700">質量 (${simulationState.massB} kg)</label>
+                    <input type="range" id="massB-slider" min="1" max="10" step="0.5" value="${simulationState.massB}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    <label class="block text-sm font-medium text-gray-700">速度 (${simulationState.velocityB} m/s)</label>
+                    <input type="range" id="velB-slider" min="-20" max="20" step="1" value="${simulationState.velocityB}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                </div>
+            </div>
+        `;
+        document.getElementById('massA-slider').addEventListener('input', (e) => {
+            simulationState.massA = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `質量 (${simulationState.massA} kg)`;
+        });
+        document.getElementById('velA-slider').addEventListener('input', (e) => {
+            simulationState.velocityA = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `速度 (${simulationState.velocityA} m/s)`;
+            simulationState.vxA = simulationState.velocityA;
+        });
+        document.getElementById('massB-slider').addEventListener('input', (e) => {
+            simulationState.massB = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `質量 (${simulationState.massB} kg)`;
+        });
+        document.getElementById('velB-slider').addEventListener('input', (e) => {
+            simulationState.velocityB = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `速度 (${simulationState.velocityB} m/s)`;
+            simulationState.vxB = simulationState.velocityB;
+        });
+        actionBtn.onclick = () => {
+            if (!simulationState.isLaunched) {
+                simulationState.isLaunched = true;
+                updateScore(-10);
+            }
+        };
+    };
+
+    const updateMomentumChallenge = () => {
+        drawBackground();
+        
+        // Draw goal post
+        drawRect(simulationState.goalX, canvasHeight / 2 - simulationState.goalHeight / 2, simulationState.goalWidth, simulationState.goalHeight, '#4b5563');
+        drawText('GOAL', simulationState.goalX + simulationState.goalWidth / 2, canvasHeight / 2 - simulationState.goalHeight / 2 - 20, '#4b5563');
+
+        // Draw balls
+        const radiusA = 20 + simulationState.massA * 2;
+        const radiusB = 20 + simulationState.massB * 2;
+        drawCircle(simulationState.ballAX, canvasHeight / 2, radiusA, '#0d9488');
+        drawCircle(simulationState.ballBX, canvasHeight / 2, radiusB, '#0e7490');
+
+        if (simulationState.isLaunched) {
+            // Update positions
+            simulationState.ballAX += simulationState.vxA;
+            simulationState.ballBX += simulationState.vxB;
+
+            // Collision detection
+            const distance = Math.abs(simulationState.ballAX - simulationState.ballBX);
+            if (distance <= radiusA + radiusB) {
+                const newVXA = ((simulationState.massA - simulationState.massB) / (simulationState.massA + simulationState.massB)) * simulationState.vxA + ((2 * simulationState.massB) / (simulationState.massA + simulationState.massB)) * simulationState.vxB;
+                const newVXB = ((2 * simulationState.massA) / (simulationState.massA + simulationState.massB)) * simulationState.vxA + ((simulationState.massB - simulationState.massA) / (simulationState.massA + simulationState.massB)) * simulationState.cxB;
+                simulationState.vxA = newVXA;
+                simulationState.vxB = newVXB;
+                const overlap = (radiusA + radiusB) - distance;
+                simulationState.ballAX -= (overlap / 2) * Math.sign(simulationState.vxA);
+                simulationState.ballBX -= (overlap / 2) * Math.sign(simulationState.vxB);
+            }
+            
+            // Boundary check for balls
+            if (simulationState.ballAX < radiusA || simulationState.ballAX > canvasWidth - radiusA || simulationState.ballBX < radiusB || simulationState.ballBX > canvasWidth - radiusB) {
+                simulationState.isLaunched = false;
+                showMessage('失敗...', 2000);
+                actionBtn.textContent = '再挑戦';
+                actionBtn.onclick = () => startSimulation('momentum', currentStage);
+            }
+        }
+
+        // Check for goal
+        if (simulationState.ballBX > simulationState.goalX && simulationState.ballBX < simulationState.goalX + simulationState.goalWidth) {
+            showMessage('ゴール！', 3000);
+            updateScore(100);
+            simulationState.isLaunched = false;
+            actionBtn.textContent = '次のステージへ';
+            actionBtn.onclick = nextStage;
+        }
+    };
+
+    // Buoyancy Challenge
+    const initBuoyancyChallenge = (stageIndex = 0) => {
+        const stage = stages.buoyancy[stageIndex];
+        setStageUI(stages.buoyancy, stageIndex);
+        actionBtn.classList.remove('hidden');
+        actionBtn.textContent = 'リセット';
+        actionBtn.onclick = () => { startSimulation('buoyancy', currentStage); };
+        
+        simulationState = {
+            blockDensity: 0.5,
+            liquidDensity: stage.liquidDensity,
+            blockY: 50,
+            blockVelocity: 0,
+            targetDensity: stage.targetDensity,
+            isStable: false
+        };
+        
+        controlsContent.innerHTML = `
+            <h2 class="text-2xl font-bold text-center text-gray-700">浮力チャレンジ</h2>
+            <p class="text-sm text-center text-gray-600">物体の密度を調整して、液体に浮かびも沈みもしないようにしよう！</p>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">物体の密度 (${simulationState.blockDensity.toFixed(2)} g/cm³)</label>
+                <input type="range" id="block-density-slider" min="0.1" max="2.0" step="0.01" value="${simulationState.blockDensity}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+            <div class="space-y-2">
+                <label class="block text-sm font-medium text-gray-700">液体の密度 (${simulationState.liquidDensity.toFixed(2)} g/cm³)</label>
+                <input type="range" id="liquid-density-slider" min="0.1" max="2.0" step="0.01" value="${simulationState.liquidDensity}" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+            </div>
+        `;
+        document.getElementById('block-density-slider').addEventListener('input', (e) => {
+            simulationState.blockDensity = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `物体の密度 (${simulationState.blockDensity.toFixed(2)} g/cm³)`;
+        });
+        document.getElementById('liquid-density-slider').addEventListener('input', (e) => {
+            simulationState.liquidDensity = parseFloat(e.target.value);
+            e.target.previousElementSibling.textContent = `液体の密度 (${simulationState.liquidDensity.toFixed(2)} g/cm³)`;
+        });
+    };
+    
+    const updateBuoyancyChallenge = () => {
+        drawBackground();
+
+        // Draw water
+        const waterLevel = canvasHeight * 0.7;
+        drawRect(0, waterLevel, canvasWidth, canvasHeight - waterLevel, '#bbdefb');
+        drawText('液体', canvasWidth / 2, waterLevel + 20, '#666');
+
+        // Block properties
+        const blockSize = 80;
+        const mass = simulationState.blockDensity * blockSize * blockSize;
+        
+        // Calculate forces
+        const gravityForce = mass * 9.8;
+        let buoyantForce = 0;
+        if (simulationState.blockY + blockSize > waterLevel) {
+            const submergedHeight = Math.min(blockSize, (waterLevel + blockSize) - simulationState.blockY);
+            const submergedFraction = submergedHeight / blockSize;
+            buoyantForce = (simulationState.liquidDensity / 1.0) * submergedFraction * mass * 9.8;
+        }
+
+        const netForce = buoyantForce - gravityForce;
+        simulationState.blockVelocity += netForce / mass * 0.1;
+        simulationState.blockY += simulationState.blockVelocity;
+
+        if (simulationState.blockY + blockSize >= waterLevel && simulationState.blockVelocity > 0) {
+            simulationState.blockVelocity *= 0.8;
+            if (Math.abs(simulationState.blockVelocity) < 0.1) simulationState.blockVelocity = 0;
+        }
+
+        if (simulationState.blockY < 0) {
+            simulationState.blockY = 0;
+            simulationState.blockVelocity = 0;
+        }
+
+        // Draw block
+        drawRect(canvasWidth / 2 - blockSize / 2, simulationState.blockY, blockSize, blockSize, '#38bdf8');
+        drawText('物体', canvasWidth / 2, simulationState.blockY + blockSize / 2, '#fff');
+
+        // Check for win condition
+        if (simulationState.blockVelocity === 0 && Math.abs(simulationState.blockDensity - simulationState.liquidDensity) < 0.05) {
+            if (!simulationState.isStable) {
+                showMessage('クリア！', 3000);
+                updateScore(100);
+                simulationState.isStable = true;
+                actionBtn.textContent = '次のステージへ';
+                actionBtn.onclick = nextStage;
+            }
+        } else {
+             simulationState.isStable = false;
+        }
+    };
+
+
+    // --- Main Animation Loop ---
+    const animate = () => {
+        if (simulationType === 'gravity') {
+            updateGravityChallenge();
+        } else if (simulationType === 'momentum') {
+            updateMomentumChallenge();
+        } else if (simulationType === 'buoyancy') {
+            updateBuoyancyChallenge();
+        }
+        animationFrameId = requestAnimationFrame(animate);
+    };
+
+    const startSimulation = (type, stage = 0) => {
+        if (animationFrameId) {
+            cancelAnimationFrame(animationFrameId);
+        }
+        simulationType = type;
+        currentStage = stage;
+        if (type === 'gravity') {
+            initGravityChallenge(stage);
+        } else if (type === 'momentum') {
+            initMomentumChallenge(stage);
+        } else if (type === 'buoyancy') {
+            initBuoyancyChallenge(stage);
+        }
+        animate();
+    };
+
+    // Event listeners for simulation buttons
+    gravityBtn.addEventListener('click', () => startSimulation('gravity'));
+    momentumBtn.addEventListener('click', () => startSimulation('momentum'));
+    buoyancyBtn.addEventListener('click', () => startSimulation('buoyancy'));
+    actionBtn.addEventListener('click', () => {
+        // Handled by individual init functions
+    });
+
+    // Initial state
+    drawBackground();
+</script>
+
+</body>
+</html>
